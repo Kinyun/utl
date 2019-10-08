@@ -3,7 +3,7 @@ package structs
 import (
 	"database/sql"
 	"github.com/mitchellh/mapstructure"
-	"omsApi/pkg/utl/secure"
+	"github.com/matthewhartstonge/argon2"
 	"reflect"
 	"strconv"
 	"strings"
@@ -141,7 +141,7 @@ func DifSqlSet(src, req interface{}, setUpdate *strings.Builder, binds *[]interf
 
 		if v.Interface() != vr.Interface() {
 			if tagName == "password" {
-				raws, _ := secure.Decode([]byte(v.Interface().(string)))
+				raws, _ := argon2.Decode([]byte(v.Interface().(string)))
 				ok, _ := raws.Verify([]byte(vr.Interface().(string)))
 				if ok {
 					continue
@@ -155,7 +155,7 @@ func DifSqlSet(src, req interface{}, setUpdate *strings.Builder, binds *[]interf
 			setUpdate.WriteString(tagName)
 			setUpdate.WriteString(" = ? ")
 			if tagName == "password" {
-				secArgon2 := secure.DefaultConfig()
+				secArgon2 := argon2.DefaultConfig()
 				raw, _ := secArgon2.Hash([]byte(vr.Interface().(string)), nil)
 				bind = append(bind, string(raw.Encode()))
 			} else {
