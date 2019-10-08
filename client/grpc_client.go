@@ -7,7 +7,6 @@ import (
 	grpc_prometheus "github.com/grpc-ecosystem/go-grpc-prometheus"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
-	"omsApi/pkg/utl/config"
 	"time"
 )
 
@@ -30,7 +29,7 @@ func GrpcClientConn(opts *Optional) {
 	}
 
 	if len(opts.GrpcServerAdd) > 0 {
-		GrpcConn.GrpcCon, err = grpc.Dial(config.Env.IMSGRPCAddr, grpc.WithInsecure(),
+		GrpcConn.GrpcCon, err = grpc.Dial(opts.GrpcServerAdd, grpc.WithInsecure(),
 			grpc.WithStreamInterceptor(grpc_middleware.ChainStreamClient(
 				grpc_prometheus.StreamClientInterceptor,
 				grpc_retry.StreamClientInterceptor(grpcOpts...),
