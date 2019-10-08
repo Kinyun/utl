@@ -3,6 +3,7 @@ package structs
 import (
 	"database/sql"
 	"github.com/mitchellh/mapstructure"
+	"omsApi/pkg/utl/secure"
 	"reflect"
 	"strconv"
 	"strings"
@@ -111,4 +112,75 @@ func MergeRow(rows *sql.Rows, dst interface{}) {
 	if err != nil {
 		fmt.Println(err.Error())
 	}
+}
+
+//Check Different struct between data from database and req update from front-end
+//then create query Set (MySQL) using prepare statement based on comparision result and set the value on interface
+func DifSqlSet(src, req interface{}, setUpdate *strings.Builder, binds *[]interface{}) {
+	bind := []interface{}{}
+	s := reflect.ValueOf(src)
+	r := reflect.ValueOf(req)
+	if s.Kind() != reflect.Ptr || r.Kind() != reflect.Ptr {
+		return
+	}
+	for i := 0; i < s.Elem().NumField(); i++ {
+		v := s.Elem().Field(i)
+		fieldName := s.Elem().Type().Field(i).Name
+		vr := r.Elem().FieldByName(fieldName)
+		tagName := s.Elem().Type().Field(i).Tag.Get("json")
+		if tagName == "-" {
+			continue
+		}
+		if v.Kind() > reflect.Float64 &&
+			v.Kind() != reflect.String &&
+			v.Kind() != reflect.Struct &&
+			v.Kind() != reflect.Ptr &&
+			v.Kind() != reflect.Slice {
+			continue
+		}
+
+		if v.Interface() != vr.Interface() {
+			if tagName == "password" {
+				raws, _ := secure.Decode([]byte(v.Interface().(string)))
+				ok, _ := raws.Verify([]byte(vr.Interface().(string)))
+				if ok {
+					continue
+				}
+			}
+			if len(setUpdate.String()) == 0 {
+				setUpdate.WriteString(" SET ")
+			} else {
+				setUpdate.WriteString(", ")
+			}
+			setUpdate.WriteString(tagName)
+			setUpdate.WriteString(" = ? ")
+			if tagName == "password" {
+				secArgon2 := secure.DefaultConfig()
+				raw, _ := secArgon2.Hash([]byte(vr.Interface().(string)), nil)
+				bind = append(bind, string(raw.Encode()))
+			} else {
+				bind = append(bind, ConvertValue(vr))
+			}
+		}
+	}
+	*binds = append(*binds, bind...)
+}
+
+func ConvertValue(val reflect.Value) interface{} {
+	v := val.Interface()
+	switch v.(type) {
+	case int:
+		return v.(int)
+	case int32:
+		return v.(int32)
+	case int64:
+		return v.(int64)
+	case float32:
+		return v.(float32)
+	case float64:
+		return v.(float64)
+	default:
+		return v.(string)
+	}
+
 }
