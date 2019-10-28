@@ -2,12 +2,13 @@ package structs
 
 import (
 	"database/sql"
+	"fmt"
+	_ "github.com/matthewhartstonge/argon2"
 	"github.com/mitchellh/mapstructure"
-	"github.com/matthewhartstonge/argon2"
+	"github.com/vickydk/utl/secure/argon2"
 	"reflect"
 	"strconv"
 	"strings"
-	"fmt"
 )
 
 // Merge receives two structs, and merges them excluding fields with tag name: `structs`, value "-"
@@ -127,8 +128,14 @@ func DifSqlSet(src, req interface{}, setUpdate *strings.Builder, binds *[]interf
 		v := s.Elem().Field(i)
 		fieldName := s.Elem().Type().Field(i).Name
 		vr := r.Elem().FieldByName(fieldName)
-		tagName := s.Elem().Type().Field(i).Tag.Get("json")
-		if tagName == "-" {
+		skip := s.Elem().Type().Field(i).Tag.Get("json")
+		if skip == "-" {
+			continue
+		}
+		if !vr.IsValid() {
+			continue
+		}
+		if CheckNil(vr) {
 			continue
 		}
 		if v.Kind() > reflect.Float64 &&
@@ -140,7 +147,7 @@ func DifSqlSet(src, req interface{}, setUpdate *strings.Builder, binds *[]interf
 		}
 
 		if v.Interface() != vr.Interface() {
-			if tagName == "password" {
+			if skip == "password" {
 				raws, _ := argon2.Decode([]byte(v.Interface().(string)))
 				ok, _ := raws.Verify([]byte(vr.Interface().(string)))
 				if ok {
@@ -152,9 +159,9 @@ func DifSqlSet(src, req interface{}, setUpdate *strings.Builder, binds *[]interf
 			} else {
 				setUpdate.WriteString(", ")
 			}
-			setUpdate.WriteString(tagName)
+			setUpdate.WriteString(skip)
 			setUpdate.WriteString(" = ? ")
-			if tagName == "password" {
+			if skip == "password" {
 				secArgon2 := argon2.DefaultConfig()
 				raw, _ := secArgon2.Hash([]byte(vr.Interface().(string)), nil)
 				bind = append(bind, string(raw.Encode()))
@@ -183,4 +190,46 @@ func ConvertValue(val reflect.Value) interface{} {
 		return v.(string)
 	}
 
+}
+
+func CheckNil(val reflect.Value) bool {
+	v := val.Interface()
+	switch v.(type) {
+	case int:
+		if v.(int) > 0 {
+			return false
+		} else {
+			return true
+		}
+	case int32:
+		if v.(int32) > 0 {
+			return false
+		} else {
+			return true
+		}
+	case int64:
+		if v.(int64) > 0 {
+			return false
+		} else {
+			return true
+		}
+	case float32:
+		if v.(float32) > 0 {
+			return false
+		} else {
+			return true
+		}
+	case float64:
+		if v.(float64) > 0 {
+			return false
+		} else {
+			return true
+		}
+	default:
+		if len(v.(string)) > 0 {
+			return false
+		} else {
+			return true
+		}
+	}
 }
