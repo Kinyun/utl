@@ -32,6 +32,10 @@ func Merge(dst, src interface{}) {
 			v.Kind() != reflect.Slice {
 			continue
 		}
+		vr := d.Elem().FieldByName(fieldName)
+		if !vr.IsValid() {
+			continue
+		}
 		if v.Kind() == reflect.Ptr {
 			// Field is pointer check if it's nil or set
 			if !v.IsNil() {
@@ -112,6 +116,86 @@ func MergeRow(rows *sql.Rows, dst interface{}) {
 	err = decoder.Decode(m)
 	if err != nil {
 		fmt.Println(err.Error())
+	}
+}
+
+func MergeStructToMap(i interface{}) map[string]interface{} {
+	values := map[string]interface{}{}
+	iVal := reflect.ValueOf(i).Elem()
+	typ := iVal.Type()
+	for i := 0; i < iVal.NumField(); i++ {
+		f := iVal.Field(i)
+		// You ca use tags here...
+		// tag := typ.Field(i).Tag.Get("tagname")
+		// Convert each type into a string for the url.Values string map
+		tv := typ.Field(i).Tag.Get("json")
+		tagParts := strings.Split(tv, ",")
+		keyName := typ.Field(i).Name
+		if tagParts[0] != "" {
+			if tagParts[0] == "-" {
+				continue
+			}
+			keyName = tagParts[0]
+		}
+		switch f.Interface().(type) {
+		case int, int8, int16, int32, int64:
+			values[keyName] = strconv.FormatInt(f.Int(), 10)
+		case uint, uint8, uint16, uint32, uint64:
+			values[keyName] = strconv.FormatUint(f.Uint(), 10)
+		case float32:
+			values[keyName] = strconv.FormatFloat(f.Float(), 'f', 4, 32)
+		case float64:
+			values[keyName] = strconv.FormatFloat(f.Float(), 'f', 4, 64)
+		case []byte:
+			values[keyName] = string(f.Bytes())
+		case string:
+			values[keyName] = f.String()
+		}
+	}
+	return values
+}
+
+func MergeRedis(src, dst interface{}) {
+	s := reflect.ValueOf(src)
+	d := reflect.ValueOf(dst)
+	if d.Kind() != reflect.Ptr && s.Kind() != reflect.Map {
+		return
+	}
+	myMap := src.(map[string]string)
+	for i := 0; i < d.Elem().NumField(); i++ {
+		v := d.Elem().Field(i)
+		fieldName := d.Elem().Type().Field(i).Name
+		tv := d.Elem().Type().Field(i).Tag.Get("json")
+		tagParts := strings.Split(tv, ",")
+		keyName := fieldName
+		if tagParts[0] != "" {
+			if tagParts[0] == "-" {
+				continue
+			}
+			keyName = tagParts[0]
+		}
+		if fieldName == "-" {
+			continue
+		}
+		if v.Kind() > reflect.Float64 &&
+			v.Kind() != reflect.String &&
+			v.Kind() != reflect.Struct &&
+			v.Kind() != reflect.Ptr &&
+			v.Kind() != reflect.Slice {
+			continue
+		}
+
+		vType := v.Interface()
+		switch vType.(type) {
+		case int, int8, int16, int32, int64:
+			val, _ := strconv.Atoi(myMap[keyName])
+			d.Elem().FieldByName(fieldName).SetInt(int64(val))
+		case float32, float64:
+			val, _ := strconv.ParseFloat(myMap[keyName], 64)
+			d.Elem().FieldByName(fieldName).SetFloat(val)
+		default:
+			d.Elem().FieldByName(fieldName).SetString(myMap[keyName])
+		}
 	}
 }
 

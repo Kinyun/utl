@@ -1,14 +1,14 @@
-package dbhandler
+package mysql
 
 import (
-	"fmt"
 	"database/sql"
+	"fmt"
 	_ "github.com/go-sql-driver/mysql"
 	"time"
 )
 
 type Optional struct {
-	dsn string
+	dsn         string
 	maxOpenConn int
 	maxIdleConn int
 }
