@@ -2,8 +2,7 @@ package redis
 
 import (
 	"github.com/go-redis/redis"
-	"omsApi/pkg/utl/config"
-	"omsApi/pkg/utl/log"
+	"github.com/vickydk/utl/log"
 	"sync"
 	"time"
 )
@@ -17,20 +16,20 @@ var (
 	lockconnection = &sync.Mutex{}
 )
 
-func GetRedisConnection() *connections {
+func GetRedisConnection(RedisAddress, RedisPassword string) *connections {
 	if connection == nil {
 		lockconnection.Lock()
 		defer lockconnection.Unlock()
-		connection = newConnection()
+		connection = newConnection(RedisAddress, RedisPassword)
 	}
 
 	return connection
 }
 
-func newConnection() *connections {
+func newConnection(RedisAddress, RedisPassword string) *connections {
 	rdb := redis.NewClient(&redis.Options{
-		Addr:         config.Env.RedisAddress,
-		Password:     config.Env.RedisPassword,
+		Addr:         RedisAddress,
+		Password:     RedisPassword,
 		PoolTimeout:  20 * time.Second,
 		IdleTimeout:  10 * time.Second,
 		ReadTimeout:  30 * time.Second,
