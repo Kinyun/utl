@@ -9,6 +9,7 @@ import (
 	"reflect"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // Merge receives two structs, and merges them excluding fields with tag name: `structs`, value "-"
@@ -99,6 +100,12 @@ func MergeRow(rows *sql.Rows, dst interface{}) {
 				m[columns[i]] = s
 			} else if strings.ToLower(columns_type[i].DatabaseTypeName()) == "int" {
 				m[columns[i]], err = strconv.Atoi(string(col))
+			} else if strings.ToLower(columns_type[i].DatabaseTypeName()) == "timestamp" ||
+				strings.ToLower(columns_type[i].DatabaseTypeName()) == "datetime" {
+				if len(string(col)) > 0 {
+					temp, _ := time.Parse("2006-01-02T15:04:05Z", string(col))
+					m[columns[i]] = temp.Format("2006-01-02 15:04:05")
+				}
 			} else {
 				m[columns[i]], err = strconv.Atoi(string(col))
 				if err != nil {
