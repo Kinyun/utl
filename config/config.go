@@ -9,6 +9,7 @@ type ConfigurationEnvironment struct {
 	RedisEnvironment
 	ElasticEnvironment
 	ApplicationEnvironment
+	GcpEnvironment
 }
 
 type DatabaseEnvironment struct {
@@ -29,6 +30,12 @@ type RedisEnvironment struct {
 
 type ElasticEnvironment struct {
 	ElasticUrl string `env:"ElasticUrl" envDefault:"http://127.0.0.1:9200"`
+}
+
+type GcpEnvironment struct {
+	GcpProjectId          string `env:"NotificationProjectId"`
+	GcpCredentialFileName string `env:"GcpCredentialFileName"`
+	GcpStorageBucketName  string `env:"GcpStorageBucketName"`
 }
 
 type ApplicationEnvironment struct {
