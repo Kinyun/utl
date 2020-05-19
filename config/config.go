@@ -8,6 +8,7 @@ type ConfigurationEnvironment struct {
 	DatabaseEnvironment
 	RedisEnvironment
 	ElasticEnvironment
+	ApplicationEnvironment
 }
 
 type DatabaseEnvironment struct {
@@ -28,6 +29,10 @@ type RedisEnvironment struct {
 
 type ElasticEnvironment struct {
 	ElasticUrl string `env:"ElasticUrl" envDefault:"http://127.0.0.1:9200"`
+}
+
+type ApplicationEnvironment struct {
+	Debug bool `env:"Debug"`
 }
 
 var Env = ConfigurationEnvironment{}

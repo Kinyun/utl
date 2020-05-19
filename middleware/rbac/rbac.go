@@ -3,6 +3,10 @@ package rbac
 import (
 	"fmt"
 	"github.com/labstack/echo"
+	"github.com/vickydk/utl/constants"
+	rds "github.com/vickydk/utl/dbhandler/redis"
+	"github.com/vickydk/utl/helper"
+	"github.com/vickydk/utl/model"
 	"github.com/vickydk/utl/rbac"
 	"github.com/vickydk/utl/structs"
 	"net/http"
@@ -30,7 +34,12 @@ func (j *Service) MWFunc() echo.MiddlewareFunc {
 			var buf strings.Builder
 
 			if _, ok := j.rb.Roles[c.Get("role").(string)]; !ok {
-				return c.NoContent(http.StatusUnauthorized)
+				if rds.ValidateData(constants.RoleMRdsPfx + c.Get("role").(string)) {
+					j.rb.AddRole(c.Get("role").(string))
+				} else {
+					resp := helper.Respond(nil, nil, http.StatusForbidden)
+					return c.JSON(resp.Code, resp)
+				}
 			}
 			if j.rb.IsGranted(c.Get("role").(string), j.rb.Permissions["all"], nil) {
 				return next(c)
@@ -55,7 +64,19 @@ func (j *Service) MWFunc() echo.MiddlewareFunc {
 				}
 
 				if !j.rb.IsGranted(c.Get("role").(string), j.rb.Permissions[permission], nil) {
-					return c.NoContent(http.StatusUnauthorized)
+					if rds.ValidateData(constants.RoleMRdsPfx + c.Get("role").(string)) {
+						var r model.Rbac
+						rds.GetKeyValueByField(constants.RoleMRdsPfx+c.Get("role").(string), &r)
+						p := strings.Split(r.Permission, ",")
+						for _, pid := range p {
+							if permission == pid {
+								j.rb.UpdateRolePermission(c.Get("role").(string), permission, "add")
+								return next(c)
+							}
+						}
+					}
+					resp := helper.Respond(nil, nil, http.StatusForbidden)
+					return c.JSON(resp.Code, resp)
 				}
 
 				return next(c)
