@@ -3,9 +3,9 @@ package structs
 import (
 	"database/sql"
 	"fmt"
-	_ "github.com/matthewhartstonge/argon2"
+	"github.com/matthewhartstonge/argon2"
 	"github.com/mitchellh/mapstructure"
-	"github.com/vickydk/utl/secure/argon2"
+	"github.com/olivere/elastic"
 	"reflect"
 	"strconv"
 	"strings"
@@ -106,6 +106,8 @@ func MergeRow(rows *sql.Rows, dst interface{}) {
 					temp, _ := time.Parse("2006-01-02T15:04:05Z", string(col))
 					m[columns[i]] = temp.Format("2006-01-02 15:04:05")
 				}
+			} else if strings.ToLower(columns_type[i].DatabaseTypeName()) == "text" {
+				m[columns[i]] = string(col)
 			} else {
 				m[columns[i]], err = strconv.Atoi(string(col))
 				if err != nil {
@@ -123,6 +125,42 @@ func MergeRow(rows *sql.Rows, dst interface{}) {
 	err = decoder.Decode(m)
 	if err != nil {
 		fmt.Println(err.Error())
+	}
+
+	//This code to handling query data that want to merge into array type
+	r := reflect.ValueOf(dst)
+	if r.Kind() != reflect.Ptr {
+		return
+	}
+	for i := 0; i < r.Elem().NumField(); i++ {
+		v := r.Elem().Field(i)
+		fieldName := r.Elem().Type().Field(i).Name
+		tv := r.Elem().Type().Field(i).Tag.Get("json")
+		tagParts := strings.Split(tv, ",")
+		keyName := fieldName
+		if tagParts[0] != "" {
+			if tagParts[0] == "-" {
+				continue
+			}
+			keyName = tagParts[0]
+		}
+		if fieldName == "-" {
+			continue
+		}
+
+		vType := v.Interface()
+		switch vType.(type) {
+		case []string:
+			if !reflect.ValueOf(m[keyName]).IsValid() {
+				continue
+			}
+			if !CheckNil(reflect.ValueOf(m[keyName])) {
+				slc := strings.Split(m[keyName].(string), ",")
+				rS := reflect.ValueOf(&slc)
+				r.Elem().FieldByName(fieldName).Set(rS.Elem())
+			}
+
+		}
 	}
 }
 
@@ -157,6 +195,8 @@ func MergeStructToMap(i interface{}) map[string]interface{} {
 			values[keyName] = string(f.Bytes())
 		case string:
 			values[keyName] = f.String()
+		case []string:
+			values[keyName] = strings.Join(f.Interface().([]string), ",")
 		}
 	}
 	return values
@@ -200,10 +240,52 @@ func MergeRedis(src, dst interface{}) {
 		case float32, float64:
 			val, _ := strconv.ParseFloat(myMap[keyName], 64)
 			d.Elem().FieldByName(fieldName).SetFloat(val)
+		case []string:
+			slc := strings.Split(myMap[keyName], ",")
+			rS := reflect.ValueOf(&slc)
+			d.Elem().FieldByName(fieldName).Set(rS.Elem())
 		default:
 			d.Elem().FieldByName(fieldName).SetString(myMap[keyName])
 		}
 	}
+}
+
+func MergeQueryElastic(req interface{}, q *elastic.BoolQuery) {
+	s := reflect.ValueOf(req)
+	if s.Kind() != reflect.Ptr {
+		return
+	}
+	for i := 0; i < s.Elem().NumField(); i++ {
+		v := s.Elem().Field(i)
+		skip := s.Elem().Type().Field(i).Tag.Get("query")
+		if skip == "-" {
+			continue
+		}
+		if v.Kind() > reflect.Float64 &&
+			v.Kind() != reflect.String &&
+			v.Kind() != reflect.Ptr {
+			continue
+		}
+		if CheckNil(v) {
+			continue
+		}
+		q.Must(elastic.NewTermQuery(skip, ConvertValue(v)))
+	}
+}
+
+func SqlINIntSeq(ns []int) string {
+	if len(ns) == 0 {
+		return ""
+	}
+
+	estimate := len(ns) * 4
+	b := make([]byte, 0, estimate)
+	for _, n := range ns {
+		b = strconv.AppendInt(b, int64(n), 10)
+		b = append(b, ',')
+	}
+	b = b[:len(b)-1]
+	return string(b)
 }
 
 //Check Different struct between data from database and req update from front-end
@@ -236,8 +318,17 @@ func DifSqlSet(src, req interface{}, setUpdate *strings.Builder, binds *[]interf
 			v.Kind() != reflect.Slice {
 			continue
 		}
-
-		if v.Interface() != vr.Interface() {
+		var flagDif bool
+		if vr.Kind() == reflect.Ptr {
+			if v.Interface() != ConvertValue(vr) {
+				flagDif = true
+			}
+		} else {
+			if v.Interface() != vr.Interface() {
+				flagDif = true
+			}
+		}
+		if flagDif {
 			if skip == "password" {
 				raws, _ := argon2.Decode([]byte(v.Interface().(string)))
 				ok, _ := raws.Verify([]byte(vr.Interface().(string)))
@@ -264,9 +355,53 @@ func DifSqlSet(src, req interface{}, setUpdate *strings.Builder, binds *[]interf
 	*binds = append(*binds, bind...)
 }
 
+func MergeSqlInsert(req interface{}, col *strings.Builder, bindVal *strings.Builder, binds *[]interface{}) {
+	bind := []interface{}{}
+	s := reflect.ValueOf(req)
+	if s.Kind() != reflect.Ptr {
+		return
+	}
+	for i := 0; i < s.Elem().NumField(); i++ {
+		v := s.Elem().Field(i)
+		skip := s.Elem().Type().Field(i).Tag.Get("json")
+		if skip == "-" {
+			continue
+		}
+		if v.Kind() > reflect.Float64 &&
+			v.Kind() != reflect.String &&
+			v.Kind() != reflect.Ptr {
+			continue
+		}
+		if CheckNil(v) {
+			continue
+		}
+
+		if len(col.String()) != 0 {
+			col.WriteString(", ")
+			bindVal.WriteString(", ")
+		}
+		col.WriteString(skip)
+		bindVal.WriteString("?")
+		bind = append(bind, ConvertValue(v))
+	}
+	*binds = append(*binds, bind...)
+}
+
 func ConvertValue(val reflect.Value) interface{} {
 	v := val.Interface()
 	switch v.(type) {
+	case *int:
+		return *v.(*int)
+	case *int32:
+		return *v.(*int32)
+	case *int64:
+		return *v.(*int64)
+	case *float32:
+		return *v.(*float32)
+	case *float64:
+		return *v.(*float64)
+	case *string:
+		return *v.(*string)
 	case int:
 		return v.(int)
 	case int32:
@@ -280,12 +415,47 @@ func ConvertValue(val reflect.Value) interface{} {
 	default:
 		return v.(string)
 	}
-
 }
 
 func CheckNil(val reflect.Value) bool {
 	v := val.Interface()
 	switch v.(type) {
+	case *int:
+		if v.(*int) != nil {
+			return false
+		} else {
+			return true
+		}
+	case *int32:
+		if v.(*int32) != nil {
+			return false
+		} else {
+			return true
+		}
+	case *int64:
+		if v.(*int64) != nil {
+			return false
+		} else {
+			return true
+		}
+	case *float32:
+		if v.(*float32) != nil {
+			return false
+		} else {
+			return true
+		}
+	case *float64:
+		if v.(*float64) != nil {
+			return false
+		} else {
+			return true
+		}
+	case *string:
+		if v.(*string) != nil {
+			return false
+		} else {
+			return true
+		}
 	case int:
 		if v.(int) > 0 {
 			return false
@@ -311,14 +481,21 @@ func CheckNil(val reflect.Value) bool {
 			return true
 		}
 	case float64:
-		if v.(float64) > 0 {
+		if v.(float64) != 0 {
 			return false
 		} else {
 			return true
 		}
 	default:
-		if len(v.(string)) > 0 {
-			return false
+		if v == nil || (reflect.ValueOf(v).Kind() == reflect.Ptr && reflect.ValueOf(v).IsNil()) {
+			return true
+		}
+		if _, ok := v.(string); ok {
+			if len(v.(string)) > 0 {
+				return false
+			} else {
+				return true
+			}
 		} else {
 			return true
 		}
